@@ -5,17 +5,17 @@ import (
 	"github.com/absmach/propeller/task"
 )
 
-type roundRobin struct {
+type RoundRobin struct {
 	LastProplet int
 }
 
 func NewRoundRobin() Scheduler {
-	return &roundRobin{
+	return &RoundRobin{
 		LastProplet: 0,
 	}
 }
 
-func (r *roundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
+func (r *RoundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
 	if len(proplets) == 0 {
 		return proplet.Proplet{}, ErrNoProplet
 	}

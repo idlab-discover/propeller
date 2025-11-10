@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
@@ -42,6 +43,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	g, ctx := errgroup.WithContext(ctx)
 
+	var propletName = flag.String("name", "", "The name of the proplet to run from config.toml (e.g., 'proplet-1')")
+    flag.Parse()
+
+    if *propletName == "" {
+        log.Fatalf("the -name flag is required to specify which proplet to run")
+    }
+
 	cfg := config{}
 	if err := env.Parse(&cfg); err != nil {
 		log.Fatalf("failed to load configuration : %s", err.Error())
@@ -59,10 +67,16 @@ func main() {
 			if err != nil {
 				log.Fatalf("failed to load TOML configuration: %s", err.Error())
 			}
-			cfg.DomainID = conf.Proplet.DomainID
-			cfg.ClientID = conf.Proplet.ClientID
-			cfg.ClientKey = conf.Proplet.ClientKey
-			cfg.ChannelID = conf.Proplet.ChannelID
+			// --- THIS IS THE NEW, DYNAMIC LOGIC ---
+			propletConf, ok := conf.Proplets[*propletName]
+			if !ok {
+				log.Fatalf("proplet configuration for '%s' not found in config.toml", *propletName)
+			}
+			
+			cfg.DomainID = propletConf.DomainID
+			cfg.ClientID = propletConf.ClientID
+			cfg.ClientKey = propletConf.ClientKey
+			cfg.ChannelID = propletConf.ChannelID
 		default:
 			log.Fatalf("failed to load TOML configuration: %s", err.Error())
 		}

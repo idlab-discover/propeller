@@ -9,7 +9,7 @@ import (
 
 type Config struct {
 	Manager ManagerConfig `toml:"manager"`
-	Proplet PropletConfig `toml:"proplet"`
+	Proplets map[string]PropletConfig `toml:"proplets"`
 	Proxy   ProxyConfig   `toml:"proxy"`
 }
 

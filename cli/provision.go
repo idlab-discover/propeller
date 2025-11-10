@@ -230,16 +230,13 @@ channel_id = "%s"
 			managerChannel.ID,
 		)
 
+		    
+		// --- THIS IS THE NEW, SCALABLE CODE ---
 		for i, propletClient := range propletClients {
-			var sectionName string
-			switch len(propletClients) {
-			case 1:
-				sectionName = "[proplet]"
-			default:
-				sectionName = fmt.Sprintf("[proplet%d]", i+1)
-			}
+			sectionName := fmt.Sprintf("[proplets.proplet-%d]", i+1)
 
 			propletConfig := fmt.Sprintf(`
+		
 %s
 domain_id = "%s"
 client_id = "%s"

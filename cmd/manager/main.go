@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
@@ -50,6 +51,13 @@ type config struct {
 }
 
 func main() {
+
+	// --- START OF NEW CODE ---
+    // 2. DEFINE THE COMMAND-LINE FLAG
+	var schedulerName = flag.String("scheduler", "round-robin", "first-available")
+	flag.Parse()
+    // --- END OF NEW CODE ---
+
 	ctx, cancel := context.WithCancel(context.Background())
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -116,16 +124,30 @@ func main() {
 		return
 	}
 
+	// --- START OF MODIFIED SECTION ---
+    // 3. USE THE SCHEDULER FACTORY
+	sched, err := scheduler.NewScheduler(*schedulerName)
+	if err != nil {
+		logger.Error("failed to create scheduler", slog.String("error", err.Error()))
+		return
+	}
+	logger.Info("using scheduler", slog.String("name", *schedulerName))
+    
+    // 4. INJECT THE NEW SCHEDULER OBJECT
+
 	svc := manager.NewService(
 		storage.NewInMemoryStorage(),
 		storage.NewInMemoryStorage(),
 		storage.NewInMemoryStorage(),
-		scheduler.NewRoundRobin(),
+		sched,
 		mqttPubSub,
 		cfg.DomainID,
 		cfg.ChannelID,
 		logger,
 	)
+
+	// --- END OF MODIFIED SECTION ---
+	
 	svc = middleware.Logging(logger, svc)
 	svc = middleware.Tracing(tracer, svc)
 	counter, latency := prometheus.MakeMetrics(svcName, "api")
