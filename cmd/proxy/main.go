@@ -133,16 +133,26 @@ func main() {
 	}
 }
 
-func handle(logger *slog.Logger, containerChan chan<- string) func(topic string, msg map[string]interface{}) error {
+func handle(logger *slog.Logger, containerChan chan<- proxy.FetchRequest) func(topic string, msg map[string]interface{}) error {
 	return func(topic string, msg map[string]interface{}) error {
 		appName, ok := msg["app_name"].(string)
 		if !ok {
 			return errors.New("failed to unmarshal app_name")
 		}
 
+		propletID, ok := msg["proplet_id"].(string)
+		if !ok {
+			return errors.New("failed to unmarshal proplet_id")
+		}
+
+		request := proxy.FetchRequest{
+			AppName:   appName,
+			PropletID: propletID,
+		}
+
 		select {
-		case containerChan <- appName:
-			logger.Info("Received container request", slog.String("app_name", appName))
+		case containerChan <- request:
+			logger.Info("Received container request", slog.String("app_name", appName), slog.String("proplet_id", propletID))
 		default:
 			logger.Error("Channel full, dropping container request")
 		}

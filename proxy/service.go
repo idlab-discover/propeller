@@ -25,8 +25,18 @@ type ProxyService struct {
 	domainID      string
 	channelID     string
 	logger        *slog.Logger
-	containerChan chan string
-	dataChan      chan proplet.ChunkPayload
+	containerChan chan FetchRequest
+	dataChan      chan Targetedchunk
+}
+
+type FetchRequest struct {
+	AppName  string
+	PropletID string
+}
+
+type Targetedchunk struct {
+	Payload   proplet.ChunkPayload
+	TargetPropletID string
 }
 
 func NewService(ctx context.Context, pubsub pkgmqtt.PubSub, domainID, channelID string, httpCfg HTTPProxyConfig, logger *slog.Logger) (*ProxyService, error) {
@@ -36,12 +46,12 @@ func NewService(ctx context.Context, pubsub pkgmqtt.PubSub, domainID, channelID 
 		domainID:      domainID,
 		channelID:     channelID,
 		logger:        logger,
-		containerChan: make(chan string, 1),
-		dataChan:      make(chan proplet.ChunkPayload, chunkBuffer),
+		containerChan: make(chan FetchRequest, 1),
+		dataChan:      make(chan Targetedchunk, chunkBuffer),
 	}, nil
 }
 
-func (s *ProxyService) ContainerChan() chan string {
+func (s *ProxyService) ContainerChan() chan<- FetchRequest {
 	return s.containerChan
 }
 
@@ -50,11 +60,11 @@ func (s *ProxyService) StreamHTTP(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case containerName := <-s.containerChan:
-			chunks, err := s.orasconfig.FetchFromReg(ctx, containerName, s.orasconfig.ChunkSize)
+		case request := <-s.containerChan:
+			chunks, err := s.orasconfig.FetchFromReg(ctx, request.AppName, s.orasconfig.ChunkSize)
 			if err != nil {
 				s.logger.Error("failed to fetch container",
-					slog.Any("container name", containerName),
+					slog.Any("container name", request.AppName),
 					slog.Any("error", err))
 
 				continue
@@ -62,10 +72,14 @@ func (s *ProxyService) StreamHTTP(ctx context.Context) error {
 
 			// Send each chunk through the data channel
 			for _, chunk := range chunks {
+				targetedChunk := Targetedchunk{
+					Payload:       chunk,
+					TargetPropletID: request.PropletID,
+				}
 				select {
-				case s.dataChan <- chunk:
+				case s.dataChan <- targetedChunk:
 					s.logger.Info("sent container chunk to MQTT stream",
-						slog.Any("container", containerName),
+						slog.Any("container", request.AppName),
 						slog.Int("chunk", chunk.ChunkIdx),
 						slog.Int("total", chunk.TotalChunks))
 				case <-ctx.Done():
@@ -83,23 +97,25 @@ func (s *ProxyService) StreamMQTT(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case chunk := <-s.dataChan:
-			if err := s.pubsub.Publish(ctx, fmt.Sprintf(PubTopic, s.domainID, s.channelID), chunk); err != nil {
+		case targetedChunk := <-s.dataChan:
+			topic := fmt.Sprintf(PubTopic, s.domainID, s.channelID) + "/" + targetedChunk.TargetPropletID
+			if err := s.pubsub.Publish(ctx, topic, targetedChunk.Payload); err != nil {
 				s.logger.Error("failed to publish container chunk",
 					slog.Any("error", err),
-					slog.Int("chunk", chunk.ChunkIdx),
-					slog.Int("total", chunk.TotalChunks))
+					slog.Int("chunk", targetedChunk.Payload.ChunkIdx),
+					slog.Int("total", targetedChunk.Payload.TotalChunks))
 
 				continue
 			}
 
-			containerChunks[chunk.AppName]++
+			appName := targetedChunk.Payload.AppName
+			containerChunks[appName]++
 
-			if containerChunks[chunk.AppName] == chunk.TotalChunks {
+			if containerChunks[appName] == targetedChunk.Payload.TotalChunks {
 				s.logger.Info("successfully sent all chunks",
-					slog.String("container", chunk.AppName),
-					slog.Int("total_chunks", chunk.TotalChunks))
-				delete(containerChunks, chunk.AppName)
+					slog.String("container", appName),
+					slog.Int("total_chunks", targetedChunk.Payload.TotalChunks))
+				delete(containerChunks, appName)
 			}
 		}
 	}

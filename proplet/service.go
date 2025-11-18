@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +26,7 @@ var (
 	stopTopicTemplate         = "m/%s/c/%s/messages/control/manager/stop"
 	registryResponseTopic     = "m/%s/c/%s/messages/registry/server"
 	fetchRequestTopicTemplate = "m/%s/c/%s/messages/registry/proplet"
+	cacheUpdateTopicTemplate  = "m/%s/c/%s/messages/control/proplet/cache_update"
 )
 
 type PropletService struct {
@@ -38,6 +42,7 @@ type PropletService struct {
 	chunksMutex        sync.Mutex
 	runtime            Runtime
 	logger             *slog.Logger
+	dataDir            string
 }
 
 type ChunkPayload struct {
@@ -47,7 +52,7 @@ type ChunkPayload struct {
 	Data        []byte `json:"data"`
 }
 
-func NewService(ctx context.Context, domainID, channelID, clientID, clientKey, k8sNamespace string, livelinessInterval time.Duration, pubsub pkgmqtt.PubSub, logger *slog.Logger, runtime Runtime) (*PropletService, error) {
+func NewService(ctx context.Context, domainID, channelID, clientID, clientKey, k8sNamespace string, livelinessInterval time.Duration, pubsub pkgmqtt.PubSub, logger *slog.Logger, runtime Runtime, dataDir string) (*PropletService, error) {
 	topic := fmt.Sprintf(discoveryTopicTemplate, domainID, channelID)
 	payload := map[string]interface{}{
 		"namespace":  k8sNamespace,
@@ -69,6 +74,7 @@ func NewService(ctx context.Context, domainID, channelID, clientID, clientKey, k
 		chunkMetadata:      make(map[string]*ChunkPayload),
 		runtime:            runtime,
 		logger:             logger,
+		dataDir:            dataDir,
 	}
 
 	go p.startLivelinessUpdates(ctx)
@@ -87,7 +93,7 @@ func (p *PropletService) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to subscribe to stop topic: %w", err)
 	}
 
-	topic = fmt.Sprintf(registryResponseTopic, p.domainID, p.channelID)
+	topic = fmt.Sprintf(registryResponseTopic, p.domainID, p.channelID) + "/" + p.clientID
 	if err := p.pubsub.Subscribe(ctx, topic, p.handleChunk(ctx)); err != nil {
 		return fmt.Errorf("failed to subscribe to registry topics: %w", err)
 	}
@@ -127,6 +133,21 @@ func (p *PropletService) startLivelinessUpdates(ctx context.Context) {
 
 func (p *PropletService) handleStartCommand(ctx context.Context) func(topic string, msg map[string]interface{}) error {
 	return func(topic string, msg map[string]interface{}) error {
+
+		// --- START OF NEW CODE ---
+		// Check if the message is addressed to this specific proplet.
+		targetID, ok := msg["target_proplet_id"].(string)
+		if !ok {
+			p.logger.Warn("start command received without a target_proplet_id")
+			return nil
+		}
+
+		if targetID != p.clientID {
+			p.logger.Debug("Ignoring start command meant for another proplet", slog.String("target_id", targetID))
+			return nil
+		}
+		// --- END OF NEW CODE ---
+
 		data, err := json.Marshal(msg)
 		if err != nil {
 			return err
@@ -153,6 +174,26 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 
 		p.logger.Info("Received start command", slog.String("app_name", req.FunctionName))
 
+		// --- START OF NEW LOGIC ---
+
+		// If the task comes from an image URL, check for a cached copy first.
+		if req.imageURL != "" {
+			safeFilename := strings.ReplaceAll(req.imageURL, "/", "_")
+			filePath := filepath.Join(p.dataDir, safeFilename)
+
+			wasmBinary, err := os.ReadFile(filePath)
+			if err == nil {
+				// Cache hit
+				p.logger.Info("Found cached Wasm binary locally", slog.String("path", filePath))
+				if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
+					p.logger.Error("Failed to start app from cache", slog.String("app_name", req.imageURL), slog.Any("error", err))
+					return err
+				}
+				return nil
+			}
+		}
+		// --- END OF NEW LOGIC ---
+
 		if req.WasmFile != nil {
 			if err := p.runtime.StartApp(ctx, req.WasmFile, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
 				return err
@@ -163,6 +204,7 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 
 		pl := map[string]interface{}{
 			"app_name": req.imageURL,
+			"proplet_id": p.clientID,
 		}
 		tp := fmt.Sprintf(fetchRequestTopicTemplate, p.domainID, p.channelID)
 		if err := p.pubsub.Publish(ctx, tp, pl); err != nil {
@@ -181,6 +223,38 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 				if exists && receivedChunks == metadata.TotalChunks {
 					p.logger.Info("All chunks received, deploying app", slog.String("app_name", req.imageURL))
 					wasmBinary := assembleChunks(p.chunks[req.imageURL])
+
+					// --- START OF MODIFIED SECTION ---
+
+					safeFilename := strings.ReplaceAll(req.imageURL, "/", "_")
+					filePath := filepath.Join(p.dataDir, safeFilename)
+					if err := os.WriteFile(filePath, wasmBinary, 0644); err != nil {
+						p.logger.Error("Failed to save Wasm binary to cache", slog.String("path", filePath), slog.Any("error", err))
+					} else {
+						p.logger.Info("Saved Wasm binary to cache", slog.String("path", filePath))
+					}
+
+					//START OF NEW CODE
+					cacheUpdateTopic := fmt.Sprintf(cacheUpdateTopicTemplate, p.domainID, p.channelID)
+					cacheUpdatePayload := map[string]interface{}{
+						"proplet_id": p.clientID,
+						"image_url":  req.imageURL,
+					}
+					if err := p.pubsub.Publish(ctx, cacheUpdateTopic, cacheUpdatePayload); err != nil {
+						p.logger.Error("Failed to publish cache update message", slog.Any("error", err))
+					} else {
+						p.logger.Info("Published cache update message", slog.String("image_url", req.imageURL))
+					}
+
+					// Clean up the in-memory chunk storage for this app to prevent memory leaks
+					p.chunksMutex.Lock()
+					delete(p.chunks, req.imageURL)
+					delete(p.chunkMetadata, req.imageURL)
+					p.chunksMutex.Unlock()
+
+					//END OF NEW CODE
+					// --- END OF MODIFIED SECTION ---
+					
 					if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
 						p.logger.Error("Failed to start app", slog.String("app_name", req.imageURL), slog.Any("error", err))
 					}

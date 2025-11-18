@@ -180,22 +180,6 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	payload := map[string]interface{}{
-		"id":        t.ID,
-		"name":      t.Name,
-		"state":     t.State,
-		"image_url": t.ImageURL,
-		"file":      t.File,
-		"inputs":    t.Inputs,
-		"cli_args":  t.CLIArgs,
-		"daemon":    t.Daemon,
-		"env":       t.Env,
-	}
-
-	topic := svc.baseTopic + "/control/manager/start"
-	if err := svc.pubsub.Publish(ctx, topic, payload); err != nil {
-		return err
-	}
 
 	var p proplet.Proplet
 	switch t.PropletID {
@@ -212,6 +196,26 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 		if !p.Alive {
 			return fmt.Errorf("specified proplet %s is not alive", t.PropletID)
 		}
+	}
+
+	svc.logger.Info("Scheduler selected proplet, preparing to send start command", slog.String("proplet_id", p.ID), slog.String("task_id", t.ID))
+
+	payload := map[string]interface{}{
+		"id":        t.ID,
+		"name":      t.Name,
+		"state":     t.State,
+		"image_url": t.ImageURL,
+		"file":      t.File,
+		"inputs":    t.Inputs,
+		"cli_args":  t.CLIArgs,
+		"daemon":    t.Daemon,
+		"env":       t.Env,
+		"target_proplet_id": p.ID,
+	}
+
+	topic := svc.baseTopic + "/control/manager/start"
+	if err := svc.pubsub.Publish(ctx, topic, payload); err != nil {
+		return err
 	}
 
 	if err := svc.taskPropletDB.Create(ctx, taskID, p.ID); err != nil {
@@ -291,6 +295,8 @@ func (svc *service) handle(ctx context.Context) func(topic string, msg map[strin
 			return svc.updateLivenessHandler(ctx, msg)
 		case svc.baseTopic + "/control/proplet/results":
 			return svc.updateResultsHandler(ctx, msg)
+		case svc.baseTopic + "/control/proplet/cache_update":
+			return svc.updateCacheHandler(ctx, msg)
 		}
 
 		return nil
@@ -373,4 +379,34 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]int
 	}
 
 	return nil
+}
+
+func (svc *service) updateCacheHandler(ctx context.Context, msg map[string]interface{}) error {
+    propletID, ok := msg["proplet_id"].(string)
+    if !ok {
+        return errors.New("invalid proplet_id in cache update message")
+    }
+    imageURL, ok := msg["image_url"].(string)
+    if !ok {
+        return errors.New("invalid image_url in cache update message")
+    }
+
+    p, err := svc.GetProplet(ctx, propletID)
+    if err != nil {
+        return fmt.Errorf("failed to get proplet for cache update: %w", err)
+    }
+
+    // Initialize the map if it's nil
+    if p.CachedImages == nil {
+        p.CachedImages = make(map[string]bool)
+    }
+
+    p.CachedImages[imageURL] = true
+
+    if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
+        return fmt.Errorf("failed to update proplet with new cache info: %w", err)
+    }
+
+    svc.logger.Info("Updated proplet cache", slog.String("proplet_id", propletID), slog.String("image_url", imageURL))
+    return nil
 }

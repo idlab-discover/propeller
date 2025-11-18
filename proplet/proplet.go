@@ -22,6 +22,7 @@ type Proplet struct {
 	TaskCount    uint64      `json:"task_count"`
 	Alive        bool        `json:"alive"`
 	AliveHistory []time.Time `json:"alive_history"`
+	CachedImages map[string]bool `json:"cached_images"`
 }
 
 func (p *Proplet) SetAlive() {

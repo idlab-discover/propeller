@@ -7,11 +7,11 @@ func NewScheduler(name string) (Scheduler, error) {
     case "round-robin":
         return NewRoundRobin(), nil
 
-	case "first-available": // Add this new case
+	case "first-available":
         return NewFirstAvailable(), nil
 		
-    // case "locality":
-    //     return NewLocalityAware(), nil
+    case "locality":
+        return NewLocalityAware(), nil
     default:
         return nil, fmt.Errorf("unknown scheduler: '%s'", name)
     }

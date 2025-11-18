@@ -44,6 +44,7 @@ func main() {
 	g, ctx := errgroup.WithContext(ctx)
 
 	var propletName = flag.String("name", "", "The name of the proplet to run from config.toml (e.g., 'proplet-1')")
+	var dataDir = flag.String("data-dir", os.TempDir(), "Directory to store Wasm modules")
     flag.Parse()
 
     if *propletName == "" {
@@ -107,7 +108,7 @@ func main() {
 		runtime = runtimes.NewWazeroRuntime(logger, mqttPubSub, cfg.DomainID, cfg.ChannelID)
 	}
 
-	service, err := proplet.NewService(ctx, cfg.DomainID, cfg.ChannelID, cfg.ClientID, cfg.ClientKey, cfg.ManagerK8sNamespace, cfg.LivelinessInterval, mqttPubSub, logger, runtime)
+	service, err := proplet.NewService(ctx, cfg.DomainID, cfg.ChannelID, cfg.ClientID, cfg.ClientKey, cfg.ManagerK8sNamespace, cfg.LivelinessInterval, mqttPubSub, logger, runtime, *dataDir)
 	if err != nil {
 		logger.Error("failed to initialize service", slog.Any("error", err))
 
