@@ -214,6 +214,15 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	}
 
 	topic := svc.baseTopic + "/control/manager/start"
+
+	t.State = task.Running
+	t.UpdatedAt = time.Now()
+	t.StartTime = time.Now()
+
+	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {
+		return err
+	}
+
 	if err := svc.pubsub.Publish(ctx, topic, payload); err != nil {
 		return err
 	}
@@ -226,14 +235,7 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
 		return err
 	}
-
-	t.State = task.Running
-	t.UpdatedAt = time.Now()
-	t.StartTime = time.Now()
-	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {
-		return err
-	}
-
+	
 	return nil
 }
 

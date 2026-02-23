@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	requestBuffer = 100 
 	chunkBuffer = 10
 
 	connTimeout    = 10
@@ -46,7 +47,7 @@ func NewService(ctx context.Context, pubsub pkgmqtt.PubSub, domainID, channelID 
 		domainID:      domainID,
 		channelID:     channelID,
 		logger:        logger,
-		containerChan: make(chan FetchRequest, 1),
+		containerChan: make(chan FetchRequest, requestBuffer),
 		dataChan:      make(chan Targetedchunk, chunkBuffer),
 	}, nil
 }

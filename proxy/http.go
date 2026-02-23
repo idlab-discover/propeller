@@ -35,6 +35,11 @@ func (c *HTTPProxyConfig) FetchFromReg(ctx context.Context, containerPath string
 		return nil, fmt.Errorf("failed to create repository for %s: %w", containerPath, err)
 	}
 
+	// If we are pointing to localhost, disable HTTPS enforcement
+    if c.RegistryURL == "localhost:5000" || c.RegistryURL == "http://localhost:5000" {
+        repo.PlainHTTP = true
+    }
+
 	c.setupAuthentication(repo)
 
 	manifest, err := c.fetchManifest(ctx, repo, containerPath)

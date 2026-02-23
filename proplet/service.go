@@ -17,7 +17,7 @@ import (
 	"github.com/absmach/propeller/task"
 )
 
-const pollingInterval = 5 * time.Second
+const pollingInterval = 100 * time.Millisecond
 
 var (
 	aliveTopicTemplate        = "m/%s/c/%s/messages/control/proplet/alive"
@@ -134,7 +134,6 @@ func (p *PropletService) startLivelinessUpdates(ctx context.Context) {
 func (p *PropletService) handleStartCommand(ctx context.Context) func(topic string, msg map[string]interface{}) error {
 	return func(topic string, msg map[string]interface{}) error {
 
-		// --- START OF NEW CODE ---
 		// Check if the message is addressed to this specific proplet.
 		targetID, ok := msg["target_proplet_id"].(string)
 		if !ok {
@@ -143,10 +142,9 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 		}
 
 		if targetID != p.clientID {
-			p.logger.Debug("Ignoring start command meant for another proplet", slog.String("target_id", targetID))
+			// Ignore message meant for another proplet
 			return nil
 		}
-		// --- END OF NEW CODE ---
 
 		data, err := json.Marshal(msg)
 		if err != nil {
@@ -174,8 +172,6 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 
 		p.logger.Info("Received start command", slog.String("app_name", req.FunctionName))
 
-		// --- START OF NEW LOGIC ---
-
 		// If the task comes from an image URL, check for a cached copy first.
 		if req.imageURL != "" {
 			safeFilename := strings.ReplaceAll(req.imageURL, "/", "_")
@@ -187,23 +183,31 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 				p.logger.Info("Found cached Wasm binary locally", slog.String("path", filePath))
 				if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
 					p.logger.Error("Failed to start app from cache", slog.String("app_name", req.imageURL), slog.Any("error", err))
+                    
+                    // --- NEW: REPORT CACHE START FAILURE ---
+					resPayload := map[string]interface{}{
+						"task_id": req.ID,
+						"error":   err.Error(),
+					}
+					// Construct the results topic (m/domain/c/channel/messages/control/proplet/results)
+					resTopic := fmt.Sprintf("m/%s/c/%s/messages/control/proplet/results", p.domainID, p.channelID)
+					p.pubsub.Publish(ctx, resTopic, resPayload)
+                    // ---------------------------------------
 					return err
 				}
 				return nil
 			}
 		}
-		// --- END OF NEW LOGIC ---
 
 		if req.WasmFile != nil {
 			if err := p.runtime.StartApp(ctx, req.WasmFile, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
 				return err
 			}
-
 			return nil
 		}
 
 		pl := map[string]interface{}{
-			"app_name": req.imageURL,
+			"app_name":   req.imageURL,
 			"proplet_id": p.clientID,
 		}
 		tp := fmt.Sprintf(fetchRequestTopicTemplate, p.domainID, p.channelID)
@@ -224,8 +228,6 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 					p.logger.Info("All chunks received, deploying app", slog.String("app_name", req.imageURL))
 					wasmBinary := assembleChunks(p.chunks[req.imageURL])
 
-					// --- START OF MODIFIED SECTION ---
-
 					safeFilename := strings.ReplaceAll(req.imageURL, "/", "_")
 					filePath := filepath.Join(p.dataDir, safeFilename)
 					if err := os.WriteFile(filePath, wasmBinary, 0644); err != nil {
@@ -234,7 +236,6 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 						p.logger.Info("Saved Wasm binary to cache", slog.String("path", filePath))
 					}
 
-					//START OF NEW CODE
 					cacheUpdateTopic := fmt.Sprintf(cacheUpdateTopicTemplate, p.domainID, p.channelID)
 					cacheUpdatePayload := map[string]interface{}{
 						"proplet_id": p.clientID,
@@ -246,17 +247,23 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 						p.logger.Info("Published cache update message", slog.String("image_url", req.imageURL))
 					}
 
-					// Clean up the in-memory chunk storage for this app to prevent memory leaks
 					p.chunksMutex.Lock()
 					delete(p.chunks, req.imageURL)
 					delete(p.chunkMetadata, req.imageURL)
 					p.chunksMutex.Unlock()
 
-					//END OF NEW CODE
-					// --- END OF MODIFIED SECTION ---
-					
 					if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
 						p.logger.Error("Failed to start app", slog.String("app_name", req.imageURL), slog.Any("error", err))
+						
+                        // --- NEW: REPORT DOWNLOAD/START FAILURE ---
+						// This ensures the Manager knows the task died, so your test script proceeds immediately.
+						resPayload := map[string]interface{}{
+							"task_id": req.ID,
+							"error":   err.Error(),
+						}
+						resTopic := fmt.Sprintf("m/%s/c/%s/messages/control/proplet/results", p.domainID, p.channelID)
+						p.pubsub.Publish(ctx, resTopic, resPayload)
+                        // ------------------------------------------
 					}
 
 					break
