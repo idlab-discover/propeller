@@ -23,6 +23,7 @@ type Proplet struct {
 	Alive        bool        `json:"alive"`
 	AliveHistory []time.Time `json:"alive_history"`
 	CachedImages map[string]bool `json:"cached_images"`
+	Region       string          `json:"region"`
 }
 
 func (p *Proplet) SetAlive() {

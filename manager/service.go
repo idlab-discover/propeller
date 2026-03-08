@@ -314,9 +314,12 @@ func (svc *service) createPropletHandler(ctx context.Context, msg map[string]int
 		return errors.New("proplet id is empty")
 	}
 
+	region, _ := msg["region"].(string)
+
 	p := proplet.Proplet{
 		ID:   propletID,
 		Name: namegen.Generate(),
+		Region: region,
 	}
 	if err := svc.propletsDB.Create(ctx, p.ID, p); err != nil {
 		return err
@@ -340,6 +343,9 @@ func (svc *service) updateLivenessHandler(ctx context.Context, msg map[string]in
 	}
 	if err != nil {
 		return err
+	}
+	if reg, ok := msg["region"].(string); ok && reg != "" {
+		p.Region = reg
 	}
 
 	p.Alive = true

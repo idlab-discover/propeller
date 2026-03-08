@@ -43,6 +43,7 @@ type PropletService struct {
 	runtime            Runtime
 	logger             *slog.Logger
 	dataDir            string
+	region		   	   string			
 }
 
 type ChunkPayload struct {
@@ -52,11 +53,12 @@ type ChunkPayload struct {
 	Data        []byte `json:"data"`
 }
 
-func NewService(ctx context.Context, domainID, channelID, clientID, clientKey, k8sNamespace string, livelinessInterval time.Duration, pubsub pkgmqtt.PubSub, logger *slog.Logger, runtime Runtime, dataDir string) (*PropletService, error) {
+func NewService(ctx context.Context, domainID, channelID, clientID, clientKey, k8sNamespace string, livelinessInterval time.Duration, pubsub pkgmqtt.PubSub, logger *slog.Logger, runtime Runtime, dataDir string, region string) (*PropletService, error) {
 	topic := fmt.Sprintf(discoveryTopicTemplate, domainID, channelID)
 	payload := map[string]interface{}{
 		"namespace":  k8sNamespace,
 		"proplet_id": clientID,
+		"region":     region,
 	}
 	if err := pubsub.Publish(ctx, topic, payload); err != nil {
 		return nil, errors.Join(errors.New("failed to publish discovery"), err)
@@ -75,6 +77,7 @@ func NewService(ctx context.Context, domainID, channelID, clientID, clientKey, k
 		runtime:            runtime,
 		logger:             logger,
 		dataDir:            dataDir,
+		region:             region,
 	}
 
 	go p.startLivelinessUpdates(ctx)
@@ -120,6 +123,7 @@ func (p *PropletService) startLivelinessUpdates(ctx context.Context) {
 				"status":     "alive",
 				"namespace":  p.k8sNamespace,
 				"proplet_id": p.clientID,
+				"region":     p.region,
 			}
 
 			if err := p.pubsub.Publish(ctx, topic, payload); err != nil {

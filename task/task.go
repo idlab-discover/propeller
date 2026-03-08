@@ -46,6 +46,7 @@ type Task struct {
 	FinishTime time.Time         `json:"finish_time"`
 	CreatedAt  time.Time         `json:"created_at"`
 	UpdatedAt  time.Time         `json:"updated_at"`
+	RequesterRegion string       `json:"requester_region,omitempty"`
 }
 
 type TaskPage struct {

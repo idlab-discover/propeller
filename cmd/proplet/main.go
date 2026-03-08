@@ -37,6 +37,7 @@ type config struct {
 	ClientKey           string        `env:"PROPLET_CLIENT_KEY"`
 	ExternalWasmRuntime string        `env:"PROPLET_EXTERNAL_WASM_RUNTIME" envDefault:""`
 	ManagerK8sNamespace string        `env:"PROPLET_MANAGER_K8S_NAMESPACE" envDefault:"default"`
+	Region              string        `env:"PROPLET_REGION" envDefault:"default-zone"`
 }
 
 func main() {
@@ -108,7 +109,7 @@ func main() {
 		runtime = runtimes.NewWazeroRuntime(logger, mqttPubSub, cfg.DomainID, cfg.ChannelID)
 	}
 
-	service, err := proplet.NewService(ctx, cfg.DomainID, cfg.ChannelID, cfg.ClientID, cfg.ClientKey, cfg.ManagerK8sNamespace, cfg.LivelinessInterval, mqttPubSub, logger, runtime, *dataDir)
+	service, err := proplet.NewService(ctx, cfg.DomainID, cfg.ChannelID, cfg.ClientID, cfg.ClientKey, cfg.ManagerK8sNamespace, cfg.LivelinessInterval, mqttPubSub, logger, runtime, *dataDir, cfg.Region)
 	if err != nil {
 		logger.Error("failed to initialize service", slog.Any("error", err))
 

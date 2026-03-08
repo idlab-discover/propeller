@@ -12,6 +12,10 @@ func NewScheduler(name string) (Scheduler, error) {
 		
     case "locality":
         return NewLocalityAware(), nil
+
+    case "network":  
+		return NewNetworkAware(), nil
+
     default:
         return nil, fmt.Errorf("unknown scheduler: '%s'", name)
     }
