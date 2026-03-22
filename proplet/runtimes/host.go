@@ -32,7 +32,7 @@ func NewHostRuntime(logger *slog.Logger, pubsub mqtt.PubSub, domainID, channelID
 	}
 }
 
-func (w *hostRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs []string, id, functionName string, daemon bool, env map[string]string, args ...uint64) error {
+func (w *hostRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs []string, id, functionName string, daemon bool, env map[string]string, webhook string, args ...uint64) error {
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %w", err)

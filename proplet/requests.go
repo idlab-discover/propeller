@@ -13,6 +13,7 @@ type startRequest struct {
 	Params       []uint64
 	Daemon       bool
 	Env          map[string]string
+	WebHook	     string
 }
 
 func (r startRequest) Validate() error {

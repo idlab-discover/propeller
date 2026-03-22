@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+	"bytes"
+	"encoding/json"
+	"net/http"
 
 	"github.com/0x6flab/namegenerator"
 	pkgerrors "github.com/absmach/propeller/pkg/errors"
@@ -211,6 +214,7 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 		"daemon":    t.Daemon,
 		"env":       t.Env,
 		"target_proplet_id": p.ID,
+		"webhook":   t.WebHook,
 	}
 
 	topic := svc.baseTopic + "/control/manager/start"
@@ -385,6 +389,30 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]int
 	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {
 		return err
 	}
+
+	// --- NEW: FIRE WEBHOOK FROM MANAGER ---
+	if t.WebHook != "" {
+		go func(webhookURL string, taskData task.Task) {
+			// Add a flag so the Python script knows this came from the Manager
+			payload := map[string]interface{}{
+				"source":  "manager",
+				"task_id": taskData.ID,
+				"results": taskData.Results,
+				"error":   taskData.Error,
+			}
+			jsonData, _ := json.Marshal(payload)
+			
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(jsonData))
+			if err != nil {
+				svc.logger.Warn("Manager webhook failed", slog.String("error", err.Error()))
+			} else {
+				resp.Body.Close()
+				svc.logger.Info("Manager webhook delivered")
+			}
+		}(t.WebHook, t)
+	}
+	// --------------------------------------
 
 	return nil
 }

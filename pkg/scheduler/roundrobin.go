@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"sort"
+	
 	"github.com/absmach/propeller/proplet"
 	"github.com/absmach/propeller/task"
 )
@@ -33,6 +35,12 @@ func (r *RoundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (pro
 	if len(proplets) == 1 {
 		return proplets[0], nil
 	}
+
+	// --- FIX: Sort the proplets by ID to guarantee a stable order ---
+	sort.Slice(proplets, func(i, j int) bool {
+		return proplets[i].ID < proplets[j].ID
+	})
+	// ----------------------------------------------------------------------
 
 	r.LastProplet = (r.LastProplet + 1) % len(proplets)
 

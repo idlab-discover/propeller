@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+	"bytes"
+	"encoding/json"
+	"net/http"
 
 	"github.com/absmach/propeller/pkg/mqtt"
 	"github.com/absmach/propeller/proplet"
@@ -33,7 +36,7 @@ func NewWazeroRuntime(logger *slog.Logger, pubsub mqtt.PubSub, domainID, channel
 	}
 }
 
-func (w *wazeroRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs []string, id, functionName string, daemon bool, env map[string]string, args ...uint64) error {
+func (w *wazeroRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs []string, id, functionName string, daemon bool, env map[string]string, webhook string, args ...uint64) error {
 	r := wazero.NewRuntime(ctx)
 
 	w.mutex.Lock()
@@ -67,6 +70,7 @@ func (w *wazeroRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs
 		}
 
 		payload := map[string]interface{}{
+			"source":   "proplet",
 			"task_id": id,
 			"results": results,
 		}
@@ -77,6 +81,26 @@ func (w *wazeroRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs
 
 			return
 		}
+		// --- NEW: SEND DIRECTLY TO USER IF WEBHOOK EXISTS ---
+		if webhook != "" {
+			w.logger.Info("Attempting to send result to webhook", slog.String("url", webhook))
+			jsonData, err := json.Marshal(payload)
+			if err == nil {
+				// Fire and forget (don't block the proplet if the user's server is down)
+				go func() {
+					// Use a short timeout to avoid hanging if the user's server is unresponsive
+					client := &http.Client{Timeout: 5 * time.Second}
+					resp, err := client.Post(webhook, "application/json", bytes.NewReader(jsonData))
+					if err != nil {
+						w.logger.Warn("Webhook delivery failed", slog.String("error", err.Error()))
+					} else {
+						defer resp.Body.Close()
+						w.logger.Info("Webhook delivered successfully", slog.Int("status", resp.StatusCode))
+					}
+				}()
+			}
+		}
+		// ---------------------------------------------------------
 
 		w.logger.Info("Finished running app", slog.String("id", id))
 	}()

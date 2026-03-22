@@ -169,6 +169,7 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 			Params:       payload.Inputs,
 			Daemon:       payload.Daemon,
 			Env:          payload.Env,
+			WebHook:      payload.WebHook,
 		}
 		if err := req.Validate(); err != nil {
 			return err
@@ -185,7 +186,7 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 			if err == nil {
 				// Cache hit
 				p.logger.Info("Found cached Wasm binary locally", slog.String("path", filePath))
-				if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
+				if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.WebHook, req.Params...); err != nil {
 					p.logger.Error("Failed to start app from cache", slog.String("app_name", req.imageURL), slog.Any("error", err))
                     
                     // --- NEW: REPORT CACHE START FAILURE ---
@@ -204,7 +205,7 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 		}
 
 		if req.WasmFile != nil {
-			if err := p.runtime.StartApp(ctx, req.WasmFile, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
+			if err := p.runtime.StartApp(ctx, req.WasmFile, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.WebHook, req.Params...); err != nil {
 				return err
 			}
 			return nil
@@ -256,11 +257,11 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 					delete(p.chunkMetadata, req.imageURL)
 					p.chunksMutex.Unlock()
 
-					if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.Params...); err != nil {
+					if err := p.runtime.StartApp(ctx, wasmBinary, req.CLIArgs, req.ID, req.FunctionName, req.Daemon, req.Env, req.WebHook, req.Params...); err != nil {
 						p.logger.Error("Failed to start app", slog.String("app_name", req.imageURL), slog.Any("error", err))
 						
                         // --- NEW: REPORT DOWNLOAD/START FAILURE ---
-						// This ensures the Manager knows the task died, so your test script proceeds immediately.
+						// This ensures the Manager knows the task died, so the test script proceeds immediately.
 						resPayload := map[string]interface{}{
 							"task_id": req.ID,
 							"error":   err.Error(),
