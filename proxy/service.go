@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	// "time"
 
 	pkgmqtt "github.com/absmach/propeller/pkg/mqtt"
 	"github.com/absmach/propeller/proplet"
@@ -62,6 +63,10 @@ func (s *ProxyService) StreamHTTP(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case request := <-s.containerChan:
+			// // Simulate WAN Latency from Registry to Worker
+            // // 25ms represents a typical cross-Europe data center jump
+            // time.Sleep(25 * time.Millisecond) 
+            // // ---------------------
 			chunks, err := s.orasconfig.FetchFromReg(ctx, request.AppName, s.orasconfig.ChunkSize)
 			if err != nil {
 				s.logger.Error("failed to fetch container",

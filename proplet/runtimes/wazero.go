@@ -105,7 +105,7 @@ func (w *wazeroRuntime) StartApp(ctx context.Context, wasmBinary []byte, cliArgs
 		w.logger.Info("Finished running app", slog.String("id", id))
 	}()
 
-	time.Sleep(5 * time.Second)
+	// time.Sleep(5 * time.Second)
 
 	return nil
 }
