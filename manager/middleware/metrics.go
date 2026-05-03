@@ -44,7 +44,7 @@ func (mm *metricsMiddleware) ListProplets(ctx context.Context, offset, limit uin
 	return mm.svc.ListProplets(ctx, offset, limit)
 }
 
-func (mm *metricsMiddleware) SelectProplet(ctx context.Context, t task.Task) (proplet.Proplet, error) {
+func (mm *metricsMiddleware) SelectProplet(ctx context.Context, t task.Task) (proplet.Proplet, *proplet.Proplet, error) {
 	defer func(begin time.Time) {
 		mm.counter.With("method", "select-proplet").Add(1)
 		mm.latency.With("method", "select-proplet").Observe(time.Since(begin).Seconds())

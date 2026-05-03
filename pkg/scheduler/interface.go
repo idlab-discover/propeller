@@ -13,5 +13,5 @@ var (
 )
 
 type Scheduler interface {
-	SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error)
+	SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, *proplet.Proplet, error)
 }

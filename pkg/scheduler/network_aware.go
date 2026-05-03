@@ -33,9 +33,9 @@ func NewNetworkAware() Scheduler {
 	}
 }
 
-func (n *NetworkAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
+func (n *NetworkAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, *proplet.Proplet, error) {
 	if len(proplets) == 0 {
-		return proplet.Proplet{}, ErrNoProplet
+		return proplet.Proplet{}, nil, ErrNoProplet
 	}
 
 	// Filter out dead proplets
@@ -47,7 +47,7 @@ func (n *NetworkAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (p
 	}
 
 	if len(aliveProplets) == 0 {
-		return proplet.Proplet{}, ErrDeadProplers
+		return proplet.Proplet{}, nil, ErrDeadProplers
 	}
 
 	reqRegion := t.RequesterRegion
@@ -78,5 +78,5 @@ func (n *NetworkAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (p
 		return costI < costJ
 	})
 
-	return aliveProplets[0], nil
+	return aliveProplets[0], nil, nil
 }

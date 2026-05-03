@@ -15,9 +15,9 @@ func NewLocalityAware() Scheduler {
 }
 
 // SelectProplet implements the Scheduler interface.
-func (l *LocalityAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
+func (l *LocalityAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, *proplet.Proplet, error) {
 	if len(proplets) == 0 {
-		return proplet.Proplet{}, ErrNoProplet
+		return proplet.Proplet{}, nil, ErrNoProplet
 	}
 
 	warmProplets := []proplet.Proplet{}
@@ -45,7 +45,7 @@ func (l *LocalityAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (
 		sort.Slice(warmProplets, func(i, j int) bool {
 			return warmProplets[i].TaskCount < warmProplets[j].TaskCount
 		})
-		return warmProplets[0], nil
+		return warmProplets[0], nil, nil
 	}
 
 	// 2. If there are no warm proplets, it's a true cold start.
@@ -54,8 +54,8 @@ func (l *LocalityAware) SelectProplet(t task.Task, proplets []proplet.Proplet) (
 		sort.Slice(coldProplets, func(i, j int) bool {
 			return coldProplets[i].TaskCount < coldProplets[j].TaskCount
 		})
-		return coldProplets[0], nil
+		return coldProplets[0], nil, nil
 	}
 
-	return proplet.Proplet{}, ErrDeadProplers
+	return proplet.Proplet{}, nil, ErrDeadProplers
 }

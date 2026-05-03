@@ -27,6 +27,7 @@ var (
 	registryResponseTopic     = "m/%s/c/%s/messages/registry/server"
 	fetchRequestTopicTemplate = "m/%s/c/%s/messages/registry/proplet"
 	cacheUpdateTopicTemplate  = "m/%s/c/%s/messages/control/proplet/cache_update"
+	prefetchTopicTemplate     = "m/%s/c/%s/messages/control/manager/prefetch"
 )
 
 type PropletService struct {
@@ -99,6 +100,11 @@ func (p *PropletService) Run(ctx context.Context, logger *slog.Logger) error {
 	topic = fmt.Sprintf(registryResponseTopic, p.domainID, p.channelID) + "/" + p.clientID
 	if err := p.pubsub.Subscribe(ctx, topic, p.handleChunk(ctx)); err != nil {
 		return fmt.Errorf("failed to subscribe to registry topics: %w", err)
+	}
+
+	prefetchTopic := fmt.Sprintf(prefetchTopicTemplate, p.domainID, p.channelID) + "/" + p.clientID
+	if err := p.pubsub.Subscribe(ctx, prefetchTopic, p.handlePrefetchCommand(ctx)); err != nil {
+		return fmt.Errorf("failed to subscribe to prefetch topic: %w", err)
 	}
 
 	logger.Info("Proplet service is running.")
@@ -175,7 +181,7 @@ func (p *PropletService) handleStartCommand(ctx context.Context) func(topic stri
 			return err
 		}
 
-		p.logger.Info("Received start command", slog.String("app_name", req.FunctionName))
+		p.logger.Info("Received start command", slog.String("app_name", req.imageURL))
 
 		// If the task comes from an image URL, check for a cached copy first.
 		if req.imageURL != "" {
@@ -358,4 +364,88 @@ func (c *ChunkPayload) Validate() error {
 	}
 
 	return nil
+}
+
+func (p *PropletService) handlePrefetchCommand(ctx context.Context) func(topic string, msg map[string]interface{}) error {
+	return func(topic string, msg map[string]interface{}) error {
+		
+		imageURL, ok := msg["image_url"].(string)
+		if !ok || imageURL == "" {
+			p.logger.Warn("Prefetch command missing image_url")
+			return nil
+		}
+
+		p.logger.Info("Received prefetch command", slog.String("image", imageURL))
+
+		// 1. Check if we already have it cached
+		safeFilename := strings.ReplaceAll(imageURL, "/", "_")
+		filePath := filepath.Join(p.dataDir, safeFilename)
+
+		if _, err := os.Stat(filePath); err == nil {
+			p.logger.Info("Prefetch ignored: Image already cached", slog.String("path", filePath))
+			return nil
+		}
+
+		// 2. Request chunks from Proxy
+		pl := map[string]interface{}{
+			"app_name":   imageURL,
+			"proplet_id": p.clientID,
+		}
+		
+		tp := fmt.Sprintf(fetchRequestTopicTemplate, p.domainID, p.channelID)
+		if err := p.pubsub.Publish(ctx, tp, pl); err != nil {
+			p.logger.Error("Prefetch fetch request failed", slog.Any("error", err))
+			return err
+		}
+
+		// 3. Wait for chunks and save (Background Go-routine)
+		go func() {
+			p.logger.Info("Prefetch waiting for chunks", slog.String("app_name", imageURL))
+
+			for {
+				p.chunksMutex.Lock()
+				metadata, exists := p.chunkMetadata[imageURL]
+				receivedChunks := len(p.chunks[imageURL])
+				p.chunksMutex.Unlock()
+
+				if exists && receivedChunks == metadata.TotalChunks {
+					p.logger.Info("Prefetch chunks received, saving...", slog.String("app_name", imageURL))
+					
+					// Assembly
+					wasmBinary := assembleChunks(p.chunks[imageURL])
+
+					// Save to Disk
+					if err := os.WriteFile(filePath, wasmBinary, 0644); err != nil {
+						p.logger.Error("Failed to save Wasm binary to cache (Prefetch)", slog.String("path", filePath), slog.Any("error", err))
+					} else {
+						p.logger.Info("Saved Wasm binary to cache (Prefetch)", slog.String("path", filePath))
+					}
+
+					// Notify Manager (Cache Update)
+					cacheUpdateTopic := fmt.Sprintf(cacheUpdateTopicTemplate, p.domainID, p.channelID)
+					cacheUpdatePayload := map[string]interface{}{
+						"proplet_id": p.clientID,
+						"image_url":  imageURL,
+					}
+					if err := p.pubsub.Publish(ctx, cacheUpdateTopic, cacheUpdatePayload); err != nil {
+						p.logger.Error("Prefetch cache update failed", slog.Any("error", err))
+					} else {
+						p.logger.Info("Published cache update message for Prefetch", slog.String("image", imageURL))
+					}
+
+					// Cleanup Memory
+					p.chunksMutex.Lock()
+					delete(p.chunks, imageURL)
+					delete(p.chunkMetadata, imageURL)
+					p.chunksMutex.Unlock()
+
+
+					break
+				}
+				time.Sleep(pollingInterval)
+			}
+		}()
+
+		return nil
+	}
 }

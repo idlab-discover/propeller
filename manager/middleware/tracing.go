@@ -40,7 +40,7 @@ func (tm *tracing) ListProplets(ctx context.Context, offset, limit uint64) (resp
 	return tm.svc.ListProplets(ctx, offset, limit)
 }
 
-func (tm *tracing) SelectProplet(ctx context.Context, t task.Task) (resp proplet.Proplet, err error) {
+func (tm *tracing) SelectProplet(ctx context.Context, t task.Task) (resp proplet.Proplet, prefetch *proplet.Proplet, err error) {
 	ctx, span := tm.tracer.Start(ctx, "create-task", trace.WithAttributes(
 		attribute.String("task.name", t.Name),
 		attribute.String("task.id", t.ID),

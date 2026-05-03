@@ -94,10 +94,10 @@ func (svc *service) ListProplets(ctx context.Context, offset, limit uint64) (pro
 	}, nil
 }
 
-func (svc *service) SelectProplet(ctx context.Context, t task.Task) (proplet.Proplet, error) {
+func (svc *service) SelectProplet(ctx context.Context, t task.Task) (proplet.Proplet, *proplet.Proplet, error) {
 	proplets, err := svc.ListProplets(ctx, defOffset, defLimit)
 	if err != nil {
-		return proplet.Proplet{}, err
+		return proplet.Proplet{}, nil, err
 	}
 
 	return svc.scheduler.SelectProplet(t, proplets.Proplets)
@@ -185,12 +185,19 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	}
 
 	var p proplet.Proplet
+	var prefetchNode *proplet.Proplet
 	switch t.PropletID {
 	case "":
-		p, err = svc.SelectProplet(ctx, t)
+		scheduleStart := time.Now()
+		p, prefetchNode, err = svc.SelectProplet(ctx, t)
 		if err != nil {
 			return err
 		}
+		scheduleDuration := time.Since(scheduleStart)
+		svc.logger.Info("Scheduling decision completed", 
+			slog.String("task_id", t.ID),
+			slog.String("selected_node", p.ID),
+			slog.Duration("scheduler_time", scheduleDuration))
 	default:
 		p, err = svc.GetProplet(ctx, t.PropletID)
 		if err != nil {
@@ -238,6 +245,23 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	p.TaskCount++
 	if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
 		return err
+	}
+
+	// IF the scheduler returned a prefetch node, send the command!
+	if prefetchNode != nil {
+		svc.logger.Info("Triggering background prefetch", 
+			slog.String("target_proplet", prefetchNode.ID), 
+			slog.String("image", t.ImageURL))
+
+		prefetchPayload := map[string]interface{}{
+			"image_url": t.ImageURL,
+		}
+		
+		// Create a targeted topic for the prefetch node
+		prefetchTopic := fmt.Sprintf("%s/control/manager/prefetch/%s", svc.baseTopic, prefetchNode.ID)
+			
+		// Fire and forget
+		go svc.pubsub.Publish(context.Background(), prefetchTopic, prefetchPayload)
 	}
 	
 	return nil

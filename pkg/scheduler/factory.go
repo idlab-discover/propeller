@@ -15,6 +15,9 @@ func NewScheduler(name string) (Scheduler, error) {
 
     case "network":  
 		return NewNetworkAware(), nil
+        
+    case "hybrid":
+        return NewHybrid(), nil
 
     default:
         return nil, fmt.Errorf("unknown scheduler: '%s'", name)

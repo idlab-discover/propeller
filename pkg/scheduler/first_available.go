@@ -15,9 +15,9 @@ func NewFirstAvailable() Scheduler {
 }
 
 // SelectProplet implements the Scheduler interface.
-func (f *FirstAvailable) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
+func (f *FirstAvailable) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, *proplet.Proplet, error) {
     if len(proplets) == 0 {
-        return proplet.Proplet{}, ErrNoProplet
+        return proplet.Proplet{}, nil, ErrNoProplet
     }
 
 	// Sort the proplets by ID to ensure a deterministic order
@@ -27,9 +27,9 @@ func (f *FirstAvailable) SelectProplet(t task.Task, proplets []proplet.Proplet) 
 
     for _, p := range proplets {
         if p.Alive {
-            return p, nil // Return the first one we find that is alive
+            return p, nil, nil // Return the first one we find that is alive
         }
     }
 
-    return proplet.Proplet{}, ErrDeadProplers
+    return proplet.Proplet{}, nil, ErrDeadProplers
 }

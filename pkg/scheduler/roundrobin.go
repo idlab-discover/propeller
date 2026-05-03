@@ -17,9 +17,9 @@ func NewRoundRobin() Scheduler {
 	}
 }
 
-func (r *RoundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
+func (r *RoundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, *proplet.Proplet, error) {
 	if len(proplets) == 0 {
-		return proplet.Proplet{}, ErrNoProplet
+		return proplet.Proplet{}, nil, ErrNoProplet
 	}
 
 	alive := 0
@@ -29,11 +29,11 @@ func (r *RoundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (pro
 		}
 	}
 	if alive == 0 {
-		return proplet.Proplet{}, ErrDeadProplers
+		return proplet.Proplet{}, nil, ErrDeadProplers
 	}
 
 	if len(proplets) == 1 {
-		return proplets[0], nil
+		return proplets[0], nil, nil
 	}
 
 	// --- FIX: Sort the proplets by ID to guarantee a stable order ---
@@ -50,5 +50,5 @@ func (r *RoundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (pro
 	}
 	p.TaskCount += 1
 
-	return p, nil
+	return p, nil, nil
 }

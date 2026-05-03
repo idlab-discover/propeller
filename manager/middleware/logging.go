@@ -61,7 +61,7 @@ func (lm *loggingMiddleware) ListProplets(ctx context.Context, offset, limit uin
 	return lm.svc.ListProplets(ctx, offset, limit)
 }
 
-func (lm *loggingMiddleware) SelectProplet(ctx context.Context, t task.Task) (w proplet.Proplet, err error) {
+func (lm *loggingMiddleware) SelectProplet(ctx context.Context, t task.Task) (w proplet.Proplet, prefetch *proplet.Proplet, err error) {
 	defer func(begin time.Time) {
 		args := []any{
 			slog.String("duration", time.Since(begin).String()),
@@ -73,6 +73,10 @@ func (lm *loggingMiddleware) SelectProplet(ctx context.Context, t task.Task) (w 
 				slog.String("name", w.Name),
 				slog.String("id", w.ID),
 			),
+		}
+		// Log the prefetch node if it was selected
+		if prefetch != nil {
+			args = append(args, slog.Group("prefetch_proplet", slog.String("id", prefetch.ID)))
 		}
 		if err != nil {
 			args = append(args, slog.Any("error", err))
